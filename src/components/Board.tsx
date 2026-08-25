@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import ClipBody from "@/components/ClipBody";
 import {
   CLIP_TTL_HOURS,
   Clip,
@@ -273,9 +274,7 @@ export default function Board() {
                           </span>
                         ) : null}
                       </div>
-                      <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words font-sans text-sm leading-6">
-                        {clip.content}
-                      </pre>
+                      <ClipBody content={clip.content} />
                       <div className="mt-4 flex gap-2">
                         <button
                           type="button"

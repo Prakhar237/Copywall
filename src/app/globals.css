@@ -119,3 +119,22 @@ body {
     animation: none;
   }
 }
+
+.shiki-frame pre {
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  overflow: visible;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  background: transparent !important;
+}
+
+.shiki-frame code {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.shiki-frame .shiki {
+  background: #eff1f5 !important;
+}
