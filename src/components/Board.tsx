@@ -2,13 +2,22 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import ClipBody from "@/components/ClipBody";
+import LoginGate from "@/components/LoginGate";
+import {
+  CREW,
+  CrewName,
+  RIP_WINDOW_MS,
+  SESSION_KEY,
+  canRipClip,
+  isAdmin,
+  isOwnClip,
+  ripSecondsLeft,
+} from "@/lib/crew";
 import {
   CLIP_TTL_HOURS,
   Clip,
   supabase,
 } from "@/lib/supabase";
-
-const NAME_KEY = "clip-tell-name";
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -29,22 +38,29 @@ function hoursLeft(iso: string) {
 }
 
 export default function Board() {
-  const [name, setName] = useState("");
+  const [session, setSession] = useState<CrewName | null>(null);
+  const [ready, setReady] = useState(false);
   const [content, setContent] = useState("");
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(NAME_KEY);
-    if (saved) setName(saved);
+    const saved = window.localStorage.getItem(SESSION_KEY);
+    const crew = saved
+      ? CREW.find((name) => name === saved) ?? null
+      : null;
+    if (crew) setSession(crew);
+    setReady(true);
   }, []);
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 30000);
+    const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, []);
 
@@ -71,6 +87,7 @@ export default function Board() {
   }, []);
 
   useEffect(() => {
+    if (!session) return;
     let alive = true;
 
     const boot = async () => {
@@ -84,7 +101,7 @@ export default function Board() {
     void boot();
 
     const channel = supabase
-      .channel("clip-tell-wall")
+      .channel("copywall")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "clips" },
@@ -98,24 +115,36 @@ export default function Board() {
       alive = false;
       void supabase.removeChannel(channel);
     };
-  }, [loadClips, purgeExpired]);
+  }, [loadClips, purgeExpired, session]);
+
+  function enter(name: CrewName) {
+    window.localStorage.setItem(SESSION_KEY, name);
+    setSession(name);
+  }
+
+  function leave() {
+    window.localStorage.removeItem(SESSION_KEY);
+    setSession(null);
+    setClips([]);
+    setContent("");
+    setEditingId(null);
+  }
 
   async function onPaste(event: FormEvent) {
     event.preventDefault();
-    const trimmedName = name.trim();
+    if (!session) return;
     const trimmedContent = content.trim();
 
-    if (!trimmedName || !trimmedContent) {
-      setError("Name and paste both need ink.");
+    if (!trimmedContent) {
+      setError("Paste needs some ink.");
       return;
     }
 
     setSaving(true);
     setError(null);
-    window.localStorage.setItem(NAME_KEY, trimmedName);
 
     const { error: insertError } = await supabase.from("clips").insert({
-      author_name: trimmedName,
+      author_name: session,
       content: trimmedContent,
     });
 
@@ -140,13 +169,50 @@ export default function Board() {
     }
   }
 
-  async function ripClip(id: string) {
-    const { error: deleteError } = await supabase.from("clips").delete().eq("id", id);
+  async function ripClip(clip: Clip) {
+    if (!session || !canRipClip(clip.author_name, clip.created_at, session, Date.now())) {
+      return;
+    }
+    const { error: deleteError } = await supabase.from("clips").delete().eq("id", clip.id);
     if (deleteError) {
       setError("Could not rip that panel.");
       return;
     }
-    setClips((current) => current.filter((clip) => clip.id !== id));
+    setClips((current) => current.filter((item) => item.id !== clip.id));
+    if (editingId === clip.id) setEditingId(null);
+  }
+
+  function startEdit(clip: Clip) {
+    setEditingId(clip.id);
+    setDraft(clip.content);
+    setError(null);
+  }
+
+  async function saveEdit(clip: Clip) {
+    if (!session || !isOwnClip(clip.author_name, session)) return;
+    const next = draft.trim();
+    if (!next) {
+      setError("An edit still needs text.");
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("clips")
+      .update({ content: next })
+      .eq("id", clip.id)
+      .eq("author_name", session);
+
+    if (updateError) {
+      setError("Edit did not stick. Try again.");
+      return;
+    }
+
+    setClips((current) =>
+      current.map((item) =>
+        item.id === clip.id ? { ...item, content: next } : item,
+      ),
+    );
+    setEditingId(null);
   }
 
   const empty = !loading && clips.length === 0;
@@ -155,21 +221,65 @@ export default function Board() {
     return `${clips.length} panel${clips.length === 1 ? "" : "s"} on the wall`;
   }, [clips.length, now]);
 
+  if (!ready) {
+    return null;
+  }
+
+  if (!session) {
+    return <LoginGate onEnter={enter} />;
+  }
+
   return (
     <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-10">
-      <header className="comic-outline relative overflow-hidden bg-yellow px-5 py-6 sm:px-8 sm:py-8">
-        <div className="pointer-events-none absolute -right-8 -top-8 h-36 w-36 rotate-12 rounded-full bg-magenta" />
-        <div className="pointer-events-none absolute -bottom-10 left-10 h-24 w-24 rounded-full bg-cyan" />
-        <p className="relative font-sans text-[11px] font-extrabold uppercase tracking-[0.35em] text-ink">
-          Issue No. 01 · Students only · Vanishes in 24h
-        </p>
-        <h1 className="relative mt-2 font-display text-5xl font-black italic leading-[0.9] tracking-tight text-ink sm:text-7xl">
-          CLIP TELL
-        </h1>
-        <p className="relative mt-3 max-w-xl font-sans text-sm font-medium leading-relaxed text-ink sm:text-base">
-          Paste on this phone. Copy on that laptop. No WhatsApp hop, no mail
-          chain — just the wall.
-        </p>
+      <header className="comic-outline relative overflow-hidden bg-yellow">
+        <div className="pointer-events-none absolute -right-16 top-[-40px] h-48 w-48 rotate-12 rounded-full bg-magenta mix-blend-multiply" />
+        <div className="pointer-events-none absolute -bottom-16 left-8 h-32 w-32 rounded-full bg-cyan mix-blend-multiply" />
+        <div className="relative flex flex-col gap-5 px-5 py-6 sm:px-8 sm:py-8">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="font-sans text-[11px] font-extrabold uppercase tracking-[0.32em] text-ink">
+              Crew of four · Lives 24 hours
+            </p>
+            <div className="flex items-center gap-2">
+              {isAdmin(session) ? (
+                <span className="stamp comic-outline-sm bg-punch px-2 py-1 text-[10px] font-extrabold uppercase tracking-widest text-bubble">
+                  Admin
+                </span>
+              ) : null}
+              <span className="comic-outline-sm bg-bubble px-2.5 py-1 font-sans text-[11px] font-extrabold uppercase tracking-widest">
+                {session}
+              </span>
+              <button
+                type="button"
+                onClick={leave}
+                className="font-sans text-[11px] font-extrabold uppercase tracking-widest underline decoration-2 underline-offset-4"
+              >
+                Out
+              </button>
+            </div>
+          </div>
+
+          <div className="max-w-3xl">
+            <h1 className="font-display text-[clamp(3.4rem,8vw,6.4rem)] font-black italic leading-[0.82] tracking-tight text-ink">
+              Copywall
+            </h1>
+            <p className="mt-4 max-w-md font-sans text-sm font-medium leading-relaxed sm:text-base">
+              Phone to laptop, no chat hop. Paste it here. Copy it there.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {CREW.map((crew) => (
+              <span
+                key={crew}
+                className={`comic-outline-sm px-2.5 py-1 font-sans text-[10px] font-extrabold uppercase tracking-widest ${
+                  crew === session ? "bg-ink text-yellow" : "bg-bubble"
+                }`}
+              >
+                {crew}
+              </span>
+            ))}
+          </div>
+        </div>
       </header>
 
       <main className="mt-6 grid flex-1 gap-6 lg:grid-cols-[minmax(280px,380px)_1fr]">
@@ -185,16 +295,9 @@ export default function Board() {
             </div>
 
             <form onSubmit={onPaste} className="flex flex-col gap-3">
-              <label className="font-sans text-xs font-extrabold uppercase tracking-widest">
-                Your name
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  maxLength={40}
-                  placeholder="Who's posting?"
-                  className="mt-1 w-full comic-outline-sm bg-bubble px-3 py-2.5 font-sans text-base font-semibold outline-none placeholder:text-ink/40"
-                />
-              </label>
+              <p className="font-sans text-xs font-extrabold uppercase tracking-widest text-ink/80">
+                Posting as {session}
+              </p>
 
               <label className="font-sans text-xs font-extrabold uppercase tracking-widest">
                 The goods
@@ -256,6 +359,21 @@ export default function Board() {
                       ? "rotate-1"
                       : "rotate-0";
                 const copied = copiedId === clip.id;
+                const own = isOwnClip(clip.author_name, session);
+                const showRip = canRipClip(
+                  clip.author_name,
+                  clip.created_at,
+                  session,
+                  now,
+                );
+                const showEdit = own;
+                const editing = editingId === clip.id;
+                const seconds = ripSecondsLeft(clip.created_at, now);
+                const showTimer =
+                  own &&
+                  !isAdmin(session) &&
+                  now - new Date(clip.created_at).getTime() < RIP_WINDOW_MS;
+
                 return (
                   <li key={clip.id} className={tilt}>
                     <article className="speech-tail comic-outline bg-bubble p-4 pb-6">
@@ -266,6 +384,7 @@ export default function Board() {
                           </p>
                           <p className="mt-1 font-sans text-[11px] font-bold uppercase tracking-widest text-ink/60">
                             {timeAgo(clip.created_at)} · {hoursLeft(clip.created_at)}
+                            {showTimer ? ` · Rip ${seconds}s` : ""}
                           </p>
                         </div>
                         {copied ? (
@@ -274,8 +393,19 @@ export default function Board() {
                           </span>
                         ) : null}
                       </div>
-                      <ClipBody content={clip.content} />
-                      <div className="mt-4 flex gap-2">
+
+                      {editing ? (
+                        <textarea
+                          value={draft}
+                          onChange={(event) => setDraft(event.target.value)}
+                          rows={7}
+                          className="mt-3 w-full resize-y comic-outline-sm bg-paper px-3 py-2.5 font-sans text-sm leading-6 outline-none"
+                        />
+                      ) : (
+                        <ClipBody content={clip.content} />
+                      )}
+
+                      <div className="mt-4 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => void copyClip(clip)}
@@ -283,13 +413,43 @@ export default function Board() {
                         >
                           Copy
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => void ripClip(clip.id)}
-                          className="comic-outline-sm bg-paper px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest transition-transform hover:-translate-y-0.5 active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-                        >
-                          Rip
-                        </button>
+                        {showEdit ? (
+                          editing ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void saveEdit(clip)}
+                                className="comic-outline-sm bg-cyan px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingId(null)}
+                                className="comic-outline-sm bg-paper px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startEdit(clip)}
+                              className="comic-outline-sm bg-paper px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest"
+                            >
+                              Edit
+                            </button>
+                          )
+                        ) : null}
+                        {showRip ? (
+                          <button
+                            type="button"
+                            onClick={() => void ripClip(clip)}
+                            className="comic-outline-sm bg-paper px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest transition-transform hover:-translate-y-0.5 active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                          >
+                            Rip
+                          </button>
+                        ) : null}
                       </div>
                     </article>
                   </li>
@@ -301,7 +461,7 @@ export default function Board() {
       </main>
 
       <footer className="mt-10 pb-4 text-center font-sans text-[11px] font-bold uppercase tracking-[0.25em] text-ink/60">
-        Shared board · Auto-rips after 24 hours · Anyone with the link can read
+        Copywall · Auto-rips after 24 hours
       </footer>
     </div>
   );

@@ -15,9 +15,9 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Clip Tell — Universal Copy Paste",
+  title: "Copywall",
   description:
-    "A shared comic clipboard for students. Paste on one device, copy on another.",
+    "A shared comic clipboard for four desks. Paste on one device, copy on another.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
