@@ -1,8 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import ClipBody from "@/components/ClipBody";
 import LoginGate from "@/components/LoginGate";
+import { comicSpring, tapPress } from "@/lib/motion";
 import {
   CREW,
   CrewName,
@@ -49,6 +51,7 @@ export default function Board() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [now, setNow] = useState(Date.now());
+  const reduced = useReducedMotion();
 
   useEffect(() => {
     const saved = window.localStorage.getItem(SESSION_KEY);
@@ -225,15 +228,45 @@ export default function Board() {
     return null;
   }
 
-  if (!session) {
-    return <LoginGate onEnter={enter} />;
-  }
-
   return (
-    <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-10">
-      <header className="comic-outline relative overflow-hidden bg-yellow">
-        <div className="pointer-events-none absolute -right-16 top-[-40px] h-48 w-48 rotate-12 rounded-full bg-magenta mix-blend-multiply" />
-        <div className="pointer-events-none absolute -bottom-16 left-8 h-32 w-32 rounded-full bg-cyan mix-blend-multiply" />
+    <AnimatePresence mode="wait">
+      {!session ? (
+        <motion.div
+          key="login"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 0.94, rotate: 2, y: 16 }}
+          transition={comicSpring}
+        >
+          <LoginGate onEnter={enter} />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="board"
+          className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-10"
+          initial={reduced ? false : { opacity: 0, y: 28, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -12 }}
+          transition={comicSpring}
+        >
+      <motion.header
+        className="comic-outline relative overflow-hidden bg-yellow"
+        initial={reduced ? false : { opacity: 0, scale: 1.16, rotate: -4, y: -32 }}
+        animate={{ opacity: 1, scale: 1, rotate: 0, y: 0 }}
+        transition={comicSpring}
+      >
+        <motion.div
+          aria-hidden
+          className="pointer-events-none absolute -right-16 top-[-40px] h-48 w-48 rotate-12 rounded-full bg-magenta mix-blend-multiply"
+          animate={reduced ? undefined : { rotate: [12, 20, 12], x: [0, 10, 0] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-16 left-8 h-32 w-32 rounded-full bg-cyan mix-blend-multiply"
+          animate={reduced ? undefined : { y: [0, -10, 0], x: [0, 6, 0] }}
+          transition={{ duration: 6.5, repeat: Infinity, ease: "easeInOut" }}
+        />
         <div className="relative flex flex-col gap-5 px-5 py-6 sm:px-8 sm:py-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="font-sans text-[11px] font-extrabold uppercase tracking-[0.32em] text-ink">
@@ -268,22 +301,30 @@ export default function Board() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {CREW.map((crew) => (
-              <span
+            {CREW.map((crew, index) => (
+              <motion.span
                 key={crew}
+                initial={reduced ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...comicSpring, delay: 0.15 + index * 0.05 }}
                 className={`comic-outline-sm px-2.5 py-1 font-sans text-[10px] font-extrabold uppercase tracking-widest ${
                   crew === session ? "bg-ink text-yellow" : "bg-bubble"
                 }`}
               >
                 {crew}
-              </span>
+              </motion.span>
             ))}
           </div>
         </div>
-      </header>
+      </motion.header>
 
       <main className="mt-6 grid flex-1 gap-6 lg:grid-cols-[minmax(280px,380px)_1fr]">
-        <section className="comic-outline halftone-panel h-fit bg-cyan p-4 sm:p-5">
+        <motion.section
+          className="comic-outline halftone-panel h-fit bg-cyan p-4 sm:p-5"
+          initial={reduced ? false : { opacity: 0, x: -28, rotate: -2 }}
+          animate={{ opacity: 1, x: 0, rotate: 0 }}
+          transition={{ ...comicSpring, delay: reduced ? 0 : 0.08 }}
+        >
           <div className="relative z-10">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-display text-3xl font-black italic">
@@ -317,18 +358,24 @@ export default function Board() {
                 </p>
               ) : null}
 
-              <button
+              <motion.button
                 type="submit"
                 disabled={saving}
-                className="comic-outline bg-magenta px-4 py-3 font-display text-2xl font-black italic text-bubble transition-transform hover:-translate-y-0.5 active:translate-x-1 active:translate-y-1 active:shadow-none disabled:opacity-60"
+                className="comic-outline bg-magenta px-4 py-3 font-display text-2xl font-black italic text-bubble disabled:opacity-60"
+                whileHover={saving ? undefined : tapPress.whileHover}
+                whileTap={saving ? undefined : tapPress.whileTap}
               >
                 {saving ? "Sticking..." : "Paste to the wall"}
-              </button>
+              </motion.button>
             </form>
           </div>
-        </section>
+        </motion.section>
 
-        <section>
+        <motion.section
+          initial={reduced ? false : { opacity: 0, x: 24, rotate: 2 }}
+          animate={{ opacity: 1, x: 0, rotate: 0 }}
+          transition={{ ...comicSpring, delay: reduced ? 0 : 0.14 }}
+        >
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <h2 className="font-display text-3xl font-black italic sm:text-4xl">
@@ -350,14 +397,11 @@ export default function Board() {
               </p>
             </div>
           ) : (
-            <ul className="grid gap-5 sm:grid-cols-2">
+            <motion.ul className="grid gap-5 sm:grid-cols-2" layout>
+              <AnimatePresence>
               {clips.map((clip, index) => {
-                const tilt =
-                  index % 3 === 0
-                    ? "-rotate-1"
-                    : index % 3 === 1
-                      ? "rotate-1"
-                      : "rotate-0";
+                const restRotate =
+                  index % 3 === 0 ? -1.2 : index % 3 === 1 ? 1.2 : 0;
                 const copied = copiedId === clip.id;
                 const own = isOwnClip(clip.author_name, session);
                 const showRip = canRipClip(
@@ -375,7 +419,24 @@ export default function Board() {
                   now - new Date(clip.created_at).getTime() < RIP_WINDOW_MS;
 
                 return (
-                  <li key={clip.id} className={tilt}>
+                  <motion.li
+                    key={clip.id}
+                    layout
+                    initial={
+                      reduced
+                        ? false
+                        : { opacity: 0, y: 28, scale: 0.9, rotate: -6 }
+                    }
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                      rotate: restRotate,
+                    }}
+                    exit={{ opacity: 0, scale: 0.82, rotate: 8, y: -12 }}
+                    whileHover={reduced ? undefined : { y: -6, rotate: 0, zIndex: 2 }}
+                    transition={comicSpring}
+                  >
                     <article className="speech-tail comic-outline bg-bubble p-4 pb-6">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -388,9 +449,14 @@ export default function Board() {
                           </p>
                         </div>
                         {copied ? (
-                          <span className="slam-in comic-outline-sm bg-punch px-2 py-1 text-[10px] font-extrabold uppercase tracking-widest text-bubble">
+                          <motion.span
+                            initial={{ opacity: 0, scale: 1.5, rotate: -14 }}
+                            animate={{ opacity: 1, scale: 1, rotate: -8 }}
+                            transition={comicSpring}
+                            className="comic-outline-sm bg-punch px-2 py-1 text-[10px] font-extrabold uppercase tracking-widest text-bubble"
+                          >
                             Copied!
-                          </span>
+                          </motion.span>
                         ) : null}
                       </div>
 
@@ -406,13 +472,15 @@ export default function Board() {
                       )}
 
                       <div className="mt-4 flex flex-wrap gap-2">
-                        <button
+                        <motion.button
                           type="button"
                           onClick={() => void copyClip(clip)}
-                          className="flex-1 comic-outline-sm bg-yellow px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest transition-transform hover:-translate-y-0.5 active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                          className="flex-1 comic-outline-sm bg-yellow px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest"
+                          whileHover={tapPress.whileHover}
+                          whileTap={tapPress.whileTap}
                         >
                           Copy
-                        </button>
+                        </motion.button>
                         {showEdit ? (
                           editing ? (
                             <>
@@ -442,27 +510,32 @@ export default function Board() {
                           )
                         ) : null}
                         {showRip ? (
-                          <button
+                          <motion.button
                             type="button"
                             onClick={() => void ripClip(clip)}
-                            className="comic-outline-sm bg-paper px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest transition-transform hover:-translate-y-0.5 active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                            className="comic-outline-sm bg-paper px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest"
+                            whileHover={tapPress.whileHover}
+                            whileTap={tapPress.whileTap}
                           >
                             Rip
-                          </button>
+                          </motion.button>
                         ) : null}
                       </div>
                     </article>
-                  </li>
+                  </motion.li>
                 );
               })}
-            </ul>
+              </AnimatePresence>
+            </motion.ul>
           )}
-        </section>
+        </motion.section>
       </main>
 
       <footer className="mt-10 pb-4 text-center font-sans text-[11px] font-bold uppercase tracking-[0.25em] text-ink/60">
         Copywall · Auto-rips after 24 hours
       </footer>
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

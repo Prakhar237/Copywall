@@ -18,6 +18,10 @@ export const metadata: Metadata = {
   title: "Copywall",
   description:
     "A shared comic clipboard for four desks. Paste on one device, copy on another.",
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png" }],
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
