@@ -3,8 +3,15 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import ClipBody from "@/components/ClipBody";
+import ClipFile from "@/components/ClipFile";
 import LoginGate from "@/components/LoginGate";
 import { comicSpring, tapPress } from "@/lib/motion";
+import {
+  FILE_BUCKET,
+  formatBytes,
+  sanitizeFileName,
+  validateWallFile,
+} from "@/lib/files";
 import {
   CREW,
   CrewName,
@@ -50,6 +57,7 @@ export default function Board() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [now, setNow] = useState(Date.now());
   const reduced = useReducedMotion();
 
@@ -71,13 +79,26 @@ export default function Board() {
     const cutoff = new Date(
       Date.now() - CLIP_TTL_HOURS * 60 * 60 * 1000,
     ).toISOString();
+    const { data: expired } = await supabase
+      .from("clips")
+      .select("file_path")
+      .lt("created_at", cutoff)
+      .not("file_path", "is", null);
+    const paths = (expired ?? [])
+      .map((row) => row.file_path)
+      .filter((path): path is string => Boolean(path));
+    if (paths.length) {
+      await supabase.storage.from(FILE_BUCKET).remove(paths);
+    }
     await supabase.from("clips").delete().lt("created_at", cutoff);
   }, []);
 
   const loadClips = useCallback(async () => {
     const { data, error: queryError } = await supabase
       .from("clips")
-      .select("id, author_name, content, created_at")
+      .select(
+        "id, author_name, content, created_at, file_path, file_name, file_size, mime_type",
+      )
       .order("created_at", { ascending: false });
 
     if (queryError) {
@@ -130,6 +151,7 @@ export default function Board() {
     setSession(null);
     setClips([]);
     setContent("");
+    setFile(null);
     setEditingId(null);
   }
 
@@ -138,33 +160,70 @@ export default function Board() {
     if (!session) return;
     const trimmedContent = content.trim();
 
-    if (!trimmedContent) {
-      setError("Paste needs some ink.");
+    if (!trimmedContent && !file) {
+      setError("Paste text or attach a file.");
       return;
+    }
+
+    if (file) {
+      const fileError = validateWallFile(file);
+      if (fileError) {
+        setError(fileError);
+        return;
+      }
     }
 
     setSaving(true);
     setError(null);
 
-    const { error: insertError } = await supabase.from("clips").insert({
-      author_name: session,
-      content: trimmedContent,
-    });
+    let uploadedPath: string | null = null;
+    try {
+      if (file) {
+        uploadedPath = `${session}/${crypto.randomUUID()}/${sanitizeFileName(file.name)}`;
+        const { error: uploadError } = await supabase.storage
+          .from(FILE_BUCKET)
+          .upload(uploadedPath, file, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: file.type || undefined,
+          });
+        if (uploadError) throw uploadError;
+      }
 
-    setSaving(false);
+      const { error: insertError } = await supabase.from("clips").insert({
+        author_name: session,
+        content: trimmedContent,
+        file_path: uploadedPath,
+        file_name: file ? sanitizeFileName(file.name) : null,
+        file_size: file ? file.size : null,
+        mime_type: file ? file.type || null : null,
+      });
 
-    if (insertError) {
+      if (insertError) throw insertError;
+
+      setContent("");
+      setFile(null);
+      await loadClips();
+    } catch {
+      if (uploadedPath) {
+        await supabase.storage.from(FILE_BUCKET).remove([uploadedPath]);
+      }
       setError("Paste did not stick. Try again.");
-      return;
+    } finally {
+      setSaving(false);
     }
-
-    setContent("");
-    await loadClips();
   }
 
   async function copyClip(clip: Clip) {
     try {
-      await navigator.clipboard.writeText(clip.content);
+      const text = clip.content.trim()
+        ? clip.content
+        : clip.file_path
+          ? supabase.storage.from(FILE_BUCKET).getPublicUrl(clip.file_path).data
+              .publicUrl
+          : "";
+      if (!text) return;
+      await navigator.clipboard.writeText(text);
       setCopiedId(clip.id);
       window.setTimeout(() => setCopiedId((id) => (id === clip.id ? null : id)), 1600);
     } catch {
@@ -175,6 +234,9 @@ export default function Board() {
   async function ripClip(clip: Clip) {
     if (!session || !canRipClip(clip.author_name, clip.created_at, session, Date.now())) {
       return;
+    }
+    if (clip.file_path) {
+      await supabase.storage.from(FILE_BUCKET).remove([clip.file_path]);
     }
     const { error: deleteError } = await supabase.from("clips").delete().eq("id", clip.id);
     if (deleteError) {
@@ -194,7 +256,7 @@ export default function Board() {
   async function saveEdit(clip: Clip) {
     if (!session || !isOwnClip(clip.author_name, session)) return;
     const next = draft.trim();
-    if (!next) {
+    if (!next && !clip.file_path) {
       setError("An edit still needs text.");
       return;
     }
@@ -352,6 +414,31 @@ export default function Board() {
                 />
               </label>
 
+              <label className="font-sans text-xs font-extrabold uppercase tracking-widest">
+                File · up to 50 MB
+                <input
+                  type="file"
+                  onChange={(event) => {
+                    setFile(event.target.files?.[0] ?? null);
+                    setError(null);
+                  }}
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.rtf,.odt,.ods,.odp,.png,.jpg,.jpeg,.gif,.webp,.svg,.zip,.7z,.mp3,.mp4,.mov,.json,.xml,.md"
+                  className="mt-1 w-full font-sans text-sm file:mr-3 file:comic-outline-sm file:border-0 file:bg-yellow file:px-3 file:py-1.5 file:font-sans file:text-xs file:font-extrabold file:uppercase file:tracking-widest"
+                />
+              </label>
+              {file ? (
+                <p className="font-sans text-xs font-bold">
+                  {file.name} · {formatBytes(file.size)}
+                  <button
+                    type="button"
+                    onClick={() => setFile(null)}
+                    className="ml-2 underline decoration-2 underline-offset-2"
+                  >
+                    Clear
+                  </button>
+                </p>
+              ) : null}
+
               {error ? (
                 <p className="comic-outline-sm bg-punch px-3 py-2 text-sm font-bold text-bubble">
                   {error}
@@ -467,9 +554,17 @@ export default function Board() {
                           rows={7}
                           className="mt-3 w-full resize-y comic-outline-sm bg-paper px-3 py-2.5 font-sans text-sm leading-6 outline-none"
                         />
-                      ) : (
+                      ) : clip.content.trim() ? (
                         <ClipBody content={clip.content} />
-                      )}
+                      ) : null}
+                      {clip.file_path && clip.file_name ? (
+                        <ClipFile
+                          fileName={clip.file_name}
+                          filePath={clip.file_path}
+                          fileSize={clip.file_size}
+                          mimeType={clip.mime_type}
+                        />
+                      ) : null}
 
                       <div className="mt-4 flex flex-wrap gap-2">
                         <motion.button
@@ -479,7 +574,9 @@ export default function Board() {
                           whileHover={tapPress.whileHover}
                           whileTap={tapPress.whileTap}
                         >
-                          Copy
+                          {clip.file_path && !clip.content.trim()
+                            ? "Copy link"
+                            : "Copy"}
                         </motion.button>
                         {showEdit ? (
                           editing ? (

@@ -14,6 +14,10 @@ export type Clip = {
   author_name: string;
   content: string;
   created_at: string;
+  file_path: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  mime_type: string | null;
 };
 
 export const CLIP_TTL_HOURS = 24;

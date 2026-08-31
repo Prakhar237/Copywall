@@ -9,6 +9,8 @@ A shared comic clipboard for Prakhar, Arhem, Nipun, and Gokul. Paste from any de
 
 Prakhar can rip any note. Everyone else can edit their own notes, and can rip their own note only for the first 15 seconds.
 
+Files (PDF, Word, Excel, images, zip, and similar) can go on the wall too, up to 50 MB. They vanish with the note after 24 hours.
+
 ## Local
 
 ```bash
