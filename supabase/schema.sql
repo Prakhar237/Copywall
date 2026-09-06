@@ -362,6 +362,146 @@ create policy "Copywall room members upload files" on storage.objects for insert
     and split_part(name, '/', 2) = auth.uid()::text
   );
 create policy "Copywall file owners delete files" on storage.objects for delete to authenticated
-  using (bucket_id = 'wall-files' and owner_id = auth.uid());
+  using (bucket_id = 'wall-files' and owner_id = auth.uid()::text);
+
+-- Keep implementation helpers out of the Data API's exposed public schema.
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to authenticated;
+
+alter function public.handle_new_user() set schema private;
+alter function public.handle_workspace_created() set schema private;
+alter function public.is_workspace_member(uuid) set schema private;
+alter function public.is_workspace_admin(uuid) set schema private;
+alter function public.is_room_member(uuid) set schema private;
+alter function public.is_room_member_by_file_path(text) set schema private;
+alter function public.set_clip_expiry() set schema private;
+alter function public.protect_clip_fields() set schema private;
+
+create or replace function private.is_workspace_member(p_workspace_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.workspace_members
+    where workspace_id = p_workspace_id and user_id = (select auth.uid())
+  );
+$$;
+
+create or replace function private.is_workspace_admin(p_workspace_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.workspace_members
+    where workspace_id = p_workspace_id and user_id = (select auth.uid()) and role = 'owner'
+  );
+$$;
+
+create or replace function private.is_room_member(p_room_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public, private
+as $$
+  select exists (
+    select 1 from public.rooms
+    where id = p_room_id and private.is_workspace_member(workspace_id)
+  );
+$$;
+
+create or replace function private.is_room_member_by_file_path(p_name text)
+returns boolean
+language plpgsql
+security definer
+stable
+set search_path = public, private
+as $$
+declare
+  room_part text;
+begin
+  room_part := split_part(p_name, '/', 1);
+  if room_part !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    return false;
+  end if;
+  return private.is_room_member(room_part::uuid);
+end;
+$$;
+
+create or replace function public.create_workspace_invite(
+  p_workspace_id uuid,
+  p_expires_in_hours integer default 168
+)
+returns table (code text, expires_at timestamptz)
+language plpgsql
+security definer
+set search_path = public, private
+as $$
+declare
+  invite_code text;
+  invite_expiry timestamptz;
+begin
+  if auth.uid() is null or not private.is_workspace_admin(p_workspace_id) then
+    raise exception 'Only a workspace owner can make an invite';
+  end if;
+  if p_expires_in_hours not between 1 and 720 then
+    raise exception 'Invite expiry must be between 1 and 720 hours';
+  end if;
+  invite_code := upper(substr(encode(gen_random_bytes(8), 'hex'), 1, 10));
+  invite_expiry := now() + make_interval(hours => p_expires_in_hours);
+  insert into public.workspace_invites (workspace_id, code, created_by, expires_at)
+  values (p_workspace_id, invite_code, auth.uid(), invite_expiry);
+  return query select invite_code, invite_expiry;
+end;
+$$;
+
+drop policy if exists workspaces_read_members on public.workspaces;
+drop policy if exists workspaces_update_owner on public.workspaces;
+drop policy if exists workspaces_delete_owner on public.workspaces;
+drop policy if exists workspace_members_read_members on public.workspace_members;
+drop policy if exists rooms_read_members on public.rooms;
+drop policy if exists rooms_create_members on public.rooms;
+drop policy if exists rooms_update_creator_or_owner on public.rooms;
+drop policy if exists rooms_delete_creator_or_owner on public.rooms;
+drop policy if exists invites_read_owners on public.workspace_invites;
+drop policy if exists clips_read_room_members on public.clips;
+drop policy if exists clips_create_room_members on public.clips;
+drop policy if exists clips_update_author on public.clips;
+drop policy if exists clips_delete_author_or_owner on public.clips;
+create policy workspaces_read_members on public.workspaces for select to authenticated using (private.is_workspace_member(id));
+create policy workspaces_update_owner on public.workspaces for update to authenticated using (private.is_workspace_admin(id)) with check (private.is_workspace_admin(id));
+create policy workspaces_delete_owner on public.workspaces for delete to authenticated using (private.is_workspace_admin(id));
+create policy workspace_members_read_members on public.workspace_members for select to authenticated using (private.is_workspace_member(workspace_id));
+create policy rooms_read_members on public.rooms for select to authenticated using (private.is_workspace_member(workspace_id));
+create policy rooms_create_members on public.rooms for insert to authenticated with check (private.is_workspace_member(workspace_id) and created_by = (select auth.uid()));
+create policy rooms_update_creator_or_owner on public.rooms for update to authenticated using (created_by = (select auth.uid()) or private.is_workspace_admin(workspace_id)) with check (private.is_workspace_member(workspace_id));
+create policy rooms_delete_creator_or_owner on public.rooms for delete to authenticated using (created_by = (select auth.uid()) or private.is_workspace_admin(workspace_id));
+create policy invites_read_owners on public.workspace_invites for select to authenticated using (private.is_workspace_admin(workspace_id));
+create policy clips_read_room_members on public.clips for select to authenticated using (private.is_room_member(room_id) and expires_at > now());
+create policy clips_create_room_members on public.clips for insert to authenticated with check (private.is_room_member(room_id) and author_id = (select auth.uid()));
+create policy clips_update_author on public.clips for update to authenticated using (author_id = (select auth.uid())) with check (author_id = (select auth.uid()) and private.is_room_member(room_id));
+create policy clips_delete_author_or_owner on public.clips for delete to authenticated using (author_id = (select auth.uid()) or exists (select 1 from public.rooms where rooms.id = clips.room_id and private.is_workspace_admin(rooms.workspace_id)));
+
+drop policy if exists "Copywall room members read files" on storage.objects;
+drop policy if exists "Copywall room members upload files" on storage.objects;
+create policy "Copywall room members read files" on storage.objects for select to authenticated
+  using (bucket_id = 'wall-files' and private.is_room_member_by_file_path(name));
+create policy "Copywall room members upload files" on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'wall-files'
+    and private.is_room_member_by_file_path(name)
+    and split_part(name, '/', 2) = (select auth.uid())::text
+  );
+
+grant execute on function private.is_workspace_member(uuid), private.is_workspace_admin(uuid), private.is_room_member(uuid), private.is_room_member_by_file_path(text) to authenticated;
+revoke all on function public.create_workspace_invite(uuid, integer), public.join_workspace_with_invite(text) from public, anon;
+grant execute on function public.create_workspace_invite(uuid, integer), public.join_workspace_with_invite(text) to authenticated;
 
 -- In the Supabase dashboard, enable Realtime replication for public.clips.
