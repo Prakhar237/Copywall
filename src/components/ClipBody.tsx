@@ -18,12 +18,12 @@ export default function ClipBody({ content }: { content: string }) {
     const cacheKey = `${kind.lang}:${kind.code}`;
     const cached = htmlCache.get(cacheKey);
     if (cached) {
-      setHtml(cached);
+      queueMicrotask(() => setHtml(cached));
       return;
     }
 
     let cancelled = false;
-    setFailed(false);
+    queueMicrotask(() => setFailed(false));
 
     void fetch("/api/highlight", {
       method: "POST",

@@ -2,31 +2,77 @@
 
 import { FormEvent, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { BOARD_PASS, CREW, CrewName, canonicalizeName } from "@/lib/crew";
 import { comicSpring, tapPress } from "@/lib/motion";
+import { supabase } from "@/lib/supabase";
 
 type Props = {
-  onEnter: (name: CrewName) => void;
+  onAuthenticated: () => void;
 };
 
-export default function LoginGate({ onEnter }: Props) {
-  const [name, setName] = useState("");
+function cleanDisplayName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+export default function LoginGate({ onAuthenticated }: Props) {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const reduced = useReducedMotion();
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    const crew = canonicalizeName(name);
-    if (!crew) {
-      setError("Name has to be Prakhar, Arhem, Nipun, or Gokul.");
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = cleanDisplayName(displayName);
+
+    if (!normalizedEmail || !password) {
+      setError("Add your email and password first.");
       return;
     }
-    if (password !== BOARD_PASS) {
-      setError("Wrong pass. Try the crew code.");
+    if (mode === "signup" && (normalizedName.length < 2 || normalizedName.length > 48)) {
+      setError("Use a display name between 2 and 48 characters.");
       return;
     }
-    onEnter(crew);
+    if (password.length < 8) {
+      setError("Use at least 8 characters for your password.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      if (mode === "signup") {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: normalizedEmail,
+          password,
+          options: {
+            data: { display_name: normalizedName },
+            emailRedirectTo: window.location.origin,
+          },
+        });
+        if (signUpError) throw signUpError;
+        if (!data.session) {
+          setMessage("Check your email to confirm your account, then come back to Copywall.");
+          return;
+        }
+      } else {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
+        if (signInError) throw signInError;
+      }
+      onAuthenticated();
+    } catch (caught) {
+      const copy = caught instanceof Error ? caught.message : "Could not get you into Copywall.";
+      setError(copy);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -50,71 +96,78 @@ export default function LoginGate({ onEnter }: Props) {
           transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
         />
         <p className="relative font-sans text-[11px] font-extrabold uppercase tracking-[0.35em]">
-          Members only
+          Private group clipboard
         </p>
         <h1 className="relative mt-2 font-display text-6xl font-black italic leading-none tracking-tight sm:text-7xl">
           Copywall
         </h1>
         <p className="relative mt-3 max-w-sm font-sans text-sm font-medium leading-relaxed">
-          Four names. One pass. Then the wall.
+          Share code, links, and files with the people in your room. No chat hop.
         </p>
       </motion.div>
 
       <motion.form
-        onSubmit={submit}
+        onSubmit={(event) => void submit(event)}
         className="comic-outline relative z-10 -mt-3 bg-bubble p-5 sm:p-6"
         initial={reduced ? false : { opacity: 0, y: 28, rotate: 3 }}
         animate={{ opacity: 1, y: 0, rotate: 0 }}
         transition={{ ...comicSpring, delay: reduced ? 0 : 0.12 }}
       >
-        <p className="font-sans text-[11px] font-extrabold uppercase tracking-[0.22em] text-ink/70">
-          Pick your desk
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {CREW.map((crew, index) => {
-            const active = canonicalizeName(name) === crew;
-            return (
-              <motion.button
-                key={crew}
-                type="button"
-                onClick={() => {
-                  setName(crew);
-                  setError(null);
-                }}
-                initial={reduced ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...comicSpring, delay: 0.16 + index * 0.05 }}
-                whileHover={tapPress.whileHover}
-                whileTap={tapPress.whileTap}
-                className={`comic-outline-sm px-3 py-1.5 font-sans text-xs font-extrabold uppercase tracking-widest ${
-                  active ? "bg-magenta text-bubble" : "bg-paper"
-                }`}
-              >
-                {crew}
-              </motion.button>
-            );
-          })}
+        <div className="flex gap-2">
+          {(["login", "signup"] as const).map((nextMode) => (
+            <button
+              key={nextMode}
+              type="button"
+              onClick={() => {
+                setMode(nextMode);
+                setError(null);
+                setMessage(null);
+              }}
+              className={`comic-outline-sm flex-1 px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest ${
+                mode === nextMode ? "bg-magenta text-bubble" : "bg-paper"
+              }`}
+            >
+              {nextMode === "login" ? "Log in" : "Create account"}
+            </button>
+          ))}
         </div>
 
+        {mode === "signup" ? (
+          <label className="mt-5 block font-sans text-xs font-extrabold uppercase tracking-widest">
+            Display name
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              autoComplete="name"
+              maxLength={48}
+              placeholder="The name your room sees"
+              className="mt-1 w-full comic-outline-sm bg-paper px-3 py-2.5 font-sans text-base font-semibold outline-none placeholder:text-ink/35"
+            />
+          </label>
+        ) : null}
+
         <label className="mt-5 block font-sans text-xs font-extrabold uppercase tracking-widest">
-          Name
+          Email
           <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoComplete="username"
-            placeholder="Prakhar, Arhem, Nipun, or Gokul"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            inputMode="email"
+            type="email"
+            placeholder="you@college.edu"
             className="mt-1 w-full comic-outline-sm bg-paper px-3 py-2.5 font-sans text-base font-semibold outline-none placeholder:text-ink/35"
           />
         </label>
 
         <label className="mt-3 block font-sans text-xs font-extrabold uppercase tracking-widest">
-          Pass
+          Password
           <input
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            placeholder="Crew code"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            minLength={8}
+            placeholder="At least 8 characters"
             className="mt-1 w-full comic-outline-sm bg-paper px-3 py-2.5 font-sans text-base font-semibold outline-none placeholder:text-ink/35"
           />
         </label>
@@ -128,14 +181,18 @@ export default function LoginGate({ onEnter }: Props) {
             {error}
           </motion.p>
         ) : null}
+        {message ? (
+          <p className="mt-3 comic-outline-sm bg-cyan px-3 py-2 text-sm font-bold">{message}</p>
+        ) : null}
 
         <motion.button
           type="submit"
-          className="mt-4 w-full comic-outline bg-magenta px-4 py-3 font-display text-2xl font-black italic text-bubble"
-          whileHover={tapPress.whileHover}
-          whileTap={tapPress.whileTap}
+          disabled={submitting}
+          className="mt-4 w-full comic-outline bg-magenta px-4 py-3 font-display text-2xl font-black italic text-bubble disabled:opacity-60"
+          whileHover={submitting ? undefined : tapPress.whileHover}
+          whileTap={submitting ? undefined : tapPress.whileTap}
         >
-          Enter the wall
+          {submitting ? "Opening..." : mode === "login" ? "Enter Copywall" : "Make my account"}
         </motion.button>
       </motion.form>
     </div>

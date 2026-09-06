@@ -1,15 +1,19 @@
 # Copywall
 
-A shared comic clipboard for Prakhar, Arhem, Nipun, and Gokul. Paste from any device, copy on another. Notes live 24 hours.
+Private, instant sharing walls for study groups, labs, projects, and clubs. Create a space, add private rooms, invite your people, and paste text, code, links, or files from any device.
 
-## Login
+Every account gets its own identity. Every workspace is private. A room’s posts auto-expire after the retention period chosen when the room is created.
 
-- Names: `Prakhar`, `Arhem`, `Nipun`, `Gokul` (any case)
-- Pass: `1234`
+## First-time Supabase setup
 
-Prakhar can rip any note. Everyone else can edit their own notes, and can rip their own note only for the first 15 seconds.
+This release replaces the old shared-password wall with Supabase Auth and private Row Level Security policies.
 
-Files (PDF, Word, Excel, images, zip, and similar) can go on the wall too, up to 50 MB. They vanish with the note after 24 hours.
+1. In the Supabase dashboard, open **SQL Editor** and run [`supabase/schema.sql`](supabase/schema.sql).
+2. In **Authentication → Providers**, enable Email. Keep email confirmation enabled for a production app.
+3. In **Authentication → URL Configuration**, add your deployed site URL (for example `https://copywall.vercel.app`) as a redirect URL.
+4. In **Database → Replication**, enable Realtime for `public.clips` so new posts appear immediately for everyone in a room.
+
+The SQL makes the `wall-files` bucket private. Files are addressed through short-lived signed URLs and can only be read by members of the matching room.
 
 ## Local
 
@@ -29,20 +33,18 @@ Then:
 npm run dev
 ```
 
-If **Edit → Save** does not stick, run this in the Supabase SQL editor:
-
-```sql
-drop policy if exists clips_update_public on public.clips;
-
-create policy clips_update_public
-  on public.clips for update
-  to anon, authenticated
-  using (true)
-  with check (true);
-```
-
 ## Vercel
 
 1. Push the repo and import it in Vercel.
 2. Add the same two environment variables.
-3. Deploy.
+3. Deploy. Add the Vercel URL to Supabase Auth’s redirect URLs before testing sign-up.
+
+## Product model
+
+```text
+Workspace (class, club, friend group)
+  └─ Room (one private wall)
+      └─ Text, code, link, or file posts
+```
+
+Only a workspace owner can create invite links. Links work for seven days and let a person join that workspace and all of its rooms. Any workspace member can create a room; the person who creates a room chooses how long posts last: 24 hours, 3 days, 7 days, or 30 days.
