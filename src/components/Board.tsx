@@ -270,11 +270,9 @@ export default function Board() {
     if (!user) return;
     setCreatingSpace(true);
     setError(null);
-    const { data, error: createError } = await supabase
-      .from("workspaces")
-      .insert({ name, owner_id: user.id })
-      .select("id, name, owner_id, created_at")
-      .single();
+    const { data, error: createError } = await supabase.rpc("create_workspace", {
+      p_name: name,
+    });
     setCreatingSpace(false);
     if (createError || !data) {
       setError(createError?.message || "Could not create that space.");

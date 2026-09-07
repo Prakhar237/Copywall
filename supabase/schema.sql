@@ -242,6 +242,33 @@ begin
 end;
 $$;
 
+-- Workspace creation is intentionally routed through this narrow RPC. It only
+-- accepts a name and always assigns the authenticated caller as the owner,
+-- avoiding a browser-side insert that can be rejected by RLS during signup.
+create or replace function public.create_workspace(p_name text)
+returns public.workspaces
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  new_workspace public.workspaces;
+begin
+  if (select auth.uid()) is null then
+    raise exception 'Sign in before creating a workspace';
+  end if;
+  if char_length(trim(p_name)) not between 2 and 80 then
+    raise exception 'Workspace name must be between 2 and 80 characters';
+  end if;
+
+  insert into public.workspaces (name, owner_id)
+  values (trim(p_name), (select auth.uid()))
+  returning * into new_workspace;
+
+  return new_workspace;
+end;
+$$;
+
 create or replace function public.join_workspace_with_invite(p_code text)
 returns uuid
 language plpgsql
@@ -501,7 +528,7 @@ create policy "Copywall room members upload files" on storage.objects for insert
   );
 
 grant execute on function private.is_workspace_member(uuid), private.is_workspace_admin(uuid), private.is_room_member(uuid), private.is_room_member_by_file_path(text) to authenticated;
-revoke all on function public.create_workspace_invite(uuid, integer), public.join_workspace_with_invite(text) from public, anon;
-grant execute on function public.create_workspace_invite(uuid, integer), public.join_workspace_with_invite(text) to authenticated;
+revoke all on function public.create_workspace(text), public.create_workspace_invite(uuid, integer), public.join_workspace_with_invite(text) from public, anon;
+grant execute on function public.create_workspace(text), public.create_workspace_invite(uuid, integer), public.join_workspace_with_invite(text) to authenticated;
 
 -- In the Supabase dashboard, enable Realtime replication for public.clips.
