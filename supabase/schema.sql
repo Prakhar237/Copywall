@@ -234,7 +234,7 @@ begin
   if p_expires_in_hours not between 1 and 720 then
     raise exception 'Invite expiry must be between 1 and 720 hours';
   end if;
-  invite_code := upper(substr(encode(gen_random_bytes(8), 'hex'), 1, 10));
+  invite_code := upper(substr(encode(extensions.gen_random_bytes(8), 'hex'), 1, 10));
   invite_expiry := now() + make_interval(hours => p_expires_in_hours);
   insert into public.workspace_invites (workspace_id, code, created_by, expires_at)
   values (p_workspace_id, invite_code, auth.uid(), invite_expiry);
@@ -481,7 +481,7 @@ begin
   if p_expires_in_hours not between 1 and 720 then
     raise exception 'Invite expiry must be between 1 and 720 hours';
   end if;
-  invite_code := upper(substr(encode(gen_random_bytes(8), 'hex'), 1, 10));
+  invite_code := upper(substr(encode(extensions.gen_random_bytes(8), 'hex'), 1, 10));
   invite_expiry := now() + make_interval(hours => p_expires_in_hours);
   insert into public.workspace_invites (workspace_id, code, created_by, expires_at)
   values (p_workspace_id, invite_code, auth.uid(), invite_expiry);

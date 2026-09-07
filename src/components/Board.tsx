@@ -63,11 +63,14 @@ export default function Board() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
   const [retentionHours, setRetentionHours] = useState(24);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
+  const [showJoinWorkspace, setShowJoinWorkspace] = useState(false);
   const [showNewRoom, setShowNewRoom] = useState(false);
   const [creatingSpace, setCreatingSpace] = useState(false);
+  const [joiningSpace, setJoiningSpace] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [creatingInvite, setCreatingInvite] = useState(false);
@@ -284,6 +287,38 @@ export default function Board() {
     setSelectedWorkspaceId((data as Workspace).id);
     setShowNewRoom(true);
     setNotice("Space made. Create its first private wall.");
+  }
+
+  async function joinWorkspace(event: FormEvent) {
+    event.preventDefault();
+    if (!user) return;
+    const raw = joinCode.trim();
+    let code = raw.toUpperCase();
+    try {
+      const link = new URL(raw);
+      code = (link.searchParams.get("join") || "").trim().toUpperCase();
+    } catch {
+      // A bare invite code is valid too.
+    }
+    if (!/^[A-Z0-9]{10}$/.test(code)) {
+      setError("Paste a valid invite link or its 10-character code.");
+      return;
+    }
+    setJoiningSpace(true);
+    setError(null);
+    const { data, error: joinError } = await supabase.rpc("join_workspace_with_invite", {
+      p_code: code,
+    });
+    setJoiningSpace(false);
+    if (joinError) {
+      setError(joinError.message);
+      return;
+    }
+    setJoinCode("");
+    setShowJoinWorkspace(false);
+    await loadWorkspaces();
+    setSelectedWorkspaceId(data as string);
+    setNotice("You’re in. Pick a room and start sharing.");
   }
 
   async function createRoom(event: FormEvent) {
@@ -516,13 +551,22 @@ export default function Board() {
                 Private rooms for the code, links, and files your group needs right now.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowNewWorkspace((showing) => !showing)}
-              className="comic-outline-sm bg-ink px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest text-yellow"
-            >
-              + New space
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowJoinWorkspace((showing) => !showing)}
+                className="comic-outline-sm bg-cyan px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest"
+              >
+                Join space
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewWorkspace((showing) => !showing)}
+                className="comic-outline-sm bg-ink px-3 py-2 font-sans text-xs font-extrabold uppercase tracking-widest text-yellow"
+              >
+                + New space
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -558,6 +602,39 @@ export default function Board() {
                 whileTap={tapPress.whileTap}
               >
                 {creatingSpace ? "Making..." : "Create space"}
+              </motion.button>
+            </div>
+          </motion.form>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {showJoinWorkspace ? (
+          <motion.form
+            onSubmit={(event) => void joinWorkspace(event)}
+            className="comic-outline mt-6 bg-cyan p-4"
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <label className="flex-1 font-sans text-xs font-extrabold uppercase tracking-widest">
+                Invite link or code
+                <input
+                  autoFocus
+                  value={joinCode}
+                  onChange={(event) => setJoinCode(event.target.value)}
+                  placeholder="Paste a Copywall invite link or 10-character code"
+                  className="mt-1 w-full comic-outline-sm bg-bubble px-3 py-2 font-sans text-base font-semibold outline-none"
+                />
+              </label>
+              <motion.button
+                type="submit"
+                disabled={joiningSpace}
+                className="comic-outline-sm bg-ink px-4 py-2.5 font-sans text-xs font-extrabold uppercase tracking-widest text-yellow disabled:opacity-60"
+                whileTap={tapPress.whileTap}
+              >
+                {joiningSpace ? "Joining..." : "Join space"}
               </motion.button>
             </div>
           </motion.form>
