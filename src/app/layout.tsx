@@ -17,7 +17,7 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "Copywall",
   description:
-    "A shared comic clipboard for four desks. Paste on one device, copy on another.",
+    "One room number. One shared wall. Share code, text, and files from any device with Copywall.",
   icons: {
     icon: [{ url: "/icon.png", type: "image/png" }],
     apple: "/apple-icon.png",
