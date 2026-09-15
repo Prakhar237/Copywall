@@ -46,3 +46,11 @@ create policy clips_update_public
 1. Push the repo and import it in Vercel.
 2. Add the same two environment variables.
 3. Deploy.
+
+## Restoring the original shared-wall database
+
+[`supabase/restore-legacy-wall.sql`](supabase/restore-legacy-wall.sql) restores compatibility with this app on project `wyatojpbhostismvmjjf`. It has been applied as `restore_original_shared_wall_compatibility`.
+
+Newer private-room records are preserved but hidden from browser clients while legacy mode is active. The `wall-files` bucket supports public downloads and 50 MB uploads; private-room upload paths are blocked. The old shared password and edit/delete roles are browser-only checks, not server authentication: do not put sensitive information on this shared wall.
+
+[`supabase/restore-legacy-wall.test.sql`](supabase/restore-legacy-wall.test.sql) verifies legacy reads/writes and private-record isolation, rolling back all test posts.
