@@ -138,27 +138,3 @@ body {
 .shiki-frame .shiki {
   background: #eff1f5 !important;
 }
-
-.cw-button {
-  border: 2px solid var(--ink);
-  box-shadow: 3px 3px 0 var(--ink);
-  padding: 0.7rem 1rem;
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-}
-.cw-button:disabled { opacity: 0.5; cursor: wait; }
-.cw-button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
-.cw-input {
-  width: 100%; min-width: 0; border: 3px solid var(--ink);
-  background: var(--paper); padding: 0.85rem; font-weight: 600;
-}
-button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible {
-  outline: 3px solid var(--magenta); outline-offset: 4px;
-}
-.cw-sidebar { width: 290px; min-height: calc(100dvh - 155px); }
-@media (max-width: 767px) {
-  .cw-sidebar { position: fixed; inset: 0 auto 0 0; width: min(320px, 90vw); min-height: 100dvh; height: 100dvh; overflow-y: auto; z-index: 40; box-shadow: 8px 0 0 rgb(20 17 12 / 25%); }
-}

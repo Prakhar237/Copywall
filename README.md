@@ -1,40 +1,48 @@
 # Copywall
 
-Email → save your supercode → enter a room number → paste, copy, share.
+A shared comic clipboard for Prakhar, Arhem, Nipun, and Gokul. Paste from any device, copy on another. Notes live 24 hours.
 
-## Active experience
+## Login
 
-- Enter an email to receive a six-character uppercase alphanumeric supercode **on screen once**. Save it before continuing.
-- Return from any device using just that code. No password, confirmation email, workspace, or group step.
-- Join using a six-digit room number, or create a named room and share its number/link.
-- Room information starts hidden. Open the sidebar when needed, then hide it to give the wall more space. Mobile uses a dismissible drawer with keyboard focus containment.
-- Share text, code, links, and files up to 50 MB. Posts disappear from the wall after 24 hours; visible tabs refresh every four seconds.
-- The author or room creator can remove a post. Other members can read, copy, and download it.
+- Names: `Prakhar`, `Arhem`, `Nipun`, `Gokul` (any case)
+- Pass: `1234`
 
-## Setup
+Prakhar can rip any note. Everyone else can edit their own notes, and can rip their own note only for the first 15 seconds.
 
-1. Apply [`supabase/simple-rooms.sql`](supabase/simple-rooms.sql) **once**, before deploying this client. It was installed on the linked project as migration `simple_rooms_supercode_access`.
-2. Provide `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local` and Vercel. These are public client configuration; never substitute a service-role key.
-3. Run `npm ci` and `npm run dev`.
+Files (PDF, Word, Excel, images, zip, and similar) can go on the wall too, up to 50 MB. They vanish with the note after 24 hours.
 
-The active flow uses Supabase Database and Storage, but not Supabase Auth or an email provider. The linked Vercel project deploys from `main`.
+## Local
 
-## Sessions and access
+```bash
+npm install
+cp .env.example .env.local
+```
 
-This is a deliberately lightweight prototype: **emails are not verified**. They are identifiers, not proof of ownership. An already registered email cannot reveal or reset its code. There is no recovery flow yet; losing the code means losing access to that identity.
+Fill in:
 
-Supercodes are stored as hashes. Each successful login creates a random 256-bit, revocable session lasting 12 hours, kept in the browser tab’s `sessionStorage`. Log out on shared lab computers. Database-backed attempt limits reduce online guessing, but six-character credentials are not appropriate for sensitive information or a public commercial launch without stronger abuse controls and verified recovery.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-Knowing a room number grants membership. Share it only with your people; this is not a confidential-room invitation system. Private tables have RLS enabled and no direct client grants. A public invoker RPC delegates to internal functions that validate sessions and membership. Storage also checks those sessions and membership; downloads use short-lived signed URLs from a private bucket.
+Then:
 
-Post expiry hides posts; it does **not** reclaim stored files. Scheduled storage cleanup and quota enforcement are follow-up work before opening this to a large audience.
+```bash
+npm run dev
+```
 
-## Legacy mode
+If **Edit → Save** does not stick, run this in the Supabase SQL editor:
 
-`src/app/page.tsx` comments out the old `Board` import and renders `SimpleWall`. The old password-login components, Supabase Auth accounts, workspace tables, rooms, and `wall-files` bucket remain intact for rollback. Existing users get new supercodes; legacy private content is not automatically assigned to unverified email identities or exposed through room numbers.
+```sql
+drop policy if exists clips_update_public on public.clips;
 
-## Verification
+create policy clips_update_public
+  on public.clips for update
+  to anon, authenticated
+  using (true)
+  with check (true);
+```
 
-- `npm run lint` and `npm run build`
-- [`supabase/simple-rooms.test.sql`](supabase/simple-rooms.test.sql): transactional, rollback-only authorization checks against an installed schema.
-- `node scripts/test-simple-wall.mjs` with the public environment variables: cross-device login, private upload/download, member isolation, author enforcement, and logout checks against the real API. It removes the uploaded file and prints the disposable database fixture IDs for explicit cleanup.
+## Vercel
+
+1. Push the repo and import it in Vercel.
+2. Add the same two environment variables.
+3. Deploy.
